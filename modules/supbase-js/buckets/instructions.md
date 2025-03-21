@@ -4,6 +4,48 @@
 
 The `supabase_mediabucket_eval` tool allows you to execute JavaScript code that interacts with Supabase storage. This tool is designed for managing buckets and files with a focus on media storage operations.
 
+## How the Tool Works Internally
+
+The tool uses the following code to execute your JavaScript via a Function constructor:
+
+```javascript
+// Import the required modules
+const { createClient } = require("@supabase/supabase-js");
+// Create a Supabase client with your URL and SERVICE ROLE key
+const supabase = createClient(
+  "https://wpefpfebiyopiagmwrgm.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndwZWZwZmViaXlvcGlhZ213cmdtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0MjQyMjQ4OSwiZXhwIjoyMDU3OTk4NDg5fQ.f7SPDEHTgHrLaCFPvUqM93UUcLVyaw0q8BjBVyTFtIU"
+);
+const input = query; // Your code goes here as a string
+// This function creates a bucket and returns the result
+async function executeSupabaseEval() {
+  // Create a new function with the supabase variable explicitly passed as an argument
+  const supabaseFunctions = new Function("supabase", input);
+  // Execute the function with the supabase client as an argument and await the result
+  try {
+    const result = await supabaseFunctions(supabase);
+    console.log("Bucket creation result:", result);
+    return result;
+  } catch (err) {
+    console.error("Error creating bucket:", err);
+    return {
+      success: false,
+      message: "Error creating bucket",
+      error: err.message || String(err),
+    };
+  }
+}
+// Execute and immediately return the result
+return executeSupabaseEval();
+```
+
+**Understanding this execution context is important:**
+
+- Your code is executed as a string via the `Function` constructor
+- The `supabase` client is passed as an argument to your function
+- Your function must return a value that the tool can process
+- Your code should be crafted specifically for this execution environment
+
 ## Important: Execution Context
 
 **Your code will be executed within an `eval()` statement in Node.js**. This means:
@@ -30,6 +72,15 @@ return (async () => {
   }
 })();
 ```
+
+This pattern works because:
+
+1. The tool passes your code to a Function constructor
+2. It injects the supabase client as an argument
+3. The async IIFE allows for awaiting Supabase operations
+4. The string return value is passed back through the Function execution
+
+**Important:** Do not try to initialize a new Supabase client or export modules. The environment is already set up, and your code should focus solely on the operations you want to perform.
 
 ## Key Features
 
@@ -246,8 +297,22 @@ return (async () => {
 
 Common errors you might encounter:
 
-| Error                   | Possible Cause                                            | Solution                                  |
-| ----------------------- | --------------------------------------------------------- | ----------------------------------------- |
-| "Bucket already exists" | Trying to create a bucket with a name that already exists | Check if bucket exists before creating    |
-| "File not found"        | Attempting to update a file that doesn't exist            | Use upsert: true or check existence first |
-| "Permission denied"     | In                                                        |
+| Error                      | Possible Cause                                            | Solution                                                |
+| -------------------------- | --------------------------------------------------------- | ------------------------------------------------------- |
+| "Bucket already exists"    | Trying to create a bucket with a name that already exists | Check if bucket exists before creating                  |
+| "File not found"           | Attempting to update a file that doesn't exist            | Use upsert: true or check existence first               |
+| "Permission denied"        | Insufficient permissions for the operation                | Check your Supabase service role permissions            |
+| "Invalid content type"     | Incorrect file type specification                         | Ensure content type matches file (e.g., text/markdown)  |
+| "Illegal return statement" | Using return at the top level of your code                | Make sure return is inside the async IIFE               |
+| "... is not defined"       | Referencing variables not in scope                        | Remember only `supabase` is injected into your function |
+
+## Best Practices
+
+- ✅ Always check if resources exist before creating them
+- ✅ Use console.log for debugging (these will be visible in the execution logs)
+- ✅ Properly structure directories for better organization
+- ✅ Use upsert carefully based on your use case
+- ✅ Return simple string values: "completed", "failed", "partial", etc.
+- ✅ Follow the async/await pattern for all operations
+- ✅ Keep all code inside the async IIFE function
+- ✅ Don't import modules or create new Supabase clients inside your function
