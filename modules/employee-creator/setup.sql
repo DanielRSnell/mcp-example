@@ -4,6 +4,141 @@
 -- Enable UUID extension if not already enabled
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Organizations Table
+CREATE TABLE IF NOT EXISTS emp_organizations (
+    organization_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Users Table
+CREATE TABLE IF NOT EXISTS emp_users (
+    user_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    organization_id UUID NOT NULL REFERENCES emp_organizations(organization_id) ON DELETE CASCADE,
+    is_admin BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Access Controls Table
+CREATE TABLE IF NOT EXISTS emp_access_controls (
+    access_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organization_id UUID NOT NULL REFERENCES emp_organizations(organization_id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(organization_id, name)
+);
+
+-- Organization Registration Function
+CREATE OR REPLACE FUNCTION emp_register_organization(
+    p_organization_name VARCHAR(255),
+    p_admin_email VARCHAR(255),
+    p_admin_name VARCHAR(255)
+) RETURNS UUID AS $$
+DECLARE
+    v_organization_id UUID;
+    v_admin_user_id UUID;
+BEGIN
+    -- Create organization
+    INSERT INTO emp_organizations (
+        name,
+        created_at,
+        updated_at
+    ) VALUES (
+        p_organization_name,
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP
+    ) RETURNING organization_id INTO v_organization_id;
+    
+    -- Create admin user
+    INSERT INTO emp_users (
+        email,
+        name,
+        organization_id,
+        is_admin,
+        created_at,
+        updated_at
+    ) VALUES (
+        p_admin_email,
+        p_admin_name,
+        v_organization_id,
+        TRUE,
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP
+    ) RETURNING user_id INTO v_admin_user_id;
+    
+    RETURN v_organization_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Add Admin User Function
+CREATE OR REPLACE FUNCTION emp_add_admin_user(
+    p_organization_id UUID,
+    p_email VARCHAR(255),
+    p_name VARCHAR(255)
+) RETURNS UUID AS $$
+DECLARE
+    v_user_id UUID;
+BEGIN
+    -- Verify organization exists
+    IF NOT EXISTS (SELECT 1 FROM emp_organizations WHERE organization_id = p_organization_id) THEN
+        RAISE EXCEPTION 'Organization does not exist';
+    END IF;
+    
+    -- Create admin user
+    INSERT INTO emp_users (
+        email,
+        name,
+        organization_id,
+        is_admin,
+        created_at,
+        updated_at
+    ) VALUES (
+        p_email,
+        p_name,
+        p_organization_id,
+        TRUE,
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP
+    ) RETURNING user_id INTO v_user_id;
+    
+    RETURN v_user_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Setup Access Controls Function
+CREATE OR REPLACE FUNCTION emp_setup_access_controls(
+    p_organization_id UUID,
+    p_access_name VARCHAR(255),
+    p_description TEXT
+) RETURNS UUID AS $$
+DECLARE
+    v_access_id UUID;
+BEGIN
+    -- Create access control
+    INSERT INTO emp_access_controls (
+        organization_id,
+        name,
+        description,
+        created_at,
+        updated_at
+    ) VALUES (
+        p_organization_id,
+        p_access_name,
+        p_description,
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP
+    ) RETURNING access_id INTO v_access_id;
+    
+    RETURN v_access_id;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Create employees table
 CREATE TABLE IF NOT EXISTS emp_employees (
     employee_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

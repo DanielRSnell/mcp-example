@@ -6,6 +6,61 @@ This document provides a comprehensive guide to the Employee Creator Framework d
 
 ## Database Tables
 
+### Organization Management Tables
+
+#### `emp_organizations`
+```sql
+CREATE TABLE IF NOT EXISTS emp_organizations (
+    organization_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+```
+- **Purpose**: Stores organization information
+- **Key Fields**:
+  - `organization_id`: Unique identifier for the organization
+  - `name`: Organization name
+
+#### `emp_users`
+```sql
+CREATE TABLE IF NOT EXISTS emp_users (
+    user_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    organization_id UUID NOT NULL REFERENCES emp_organizations(organization_id) ON DELETE CASCADE,
+    is_admin BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+```
+- **Purpose**: Stores user information, including admin users
+- **Key Fields**:
+  - `user_id`: Unique identifier for the user
+  - `email`: User email
+  - `name`: User name
+  - `organization_id`: Reference to the organization the user belongs to
+  - `is_admin`: Flag indicating if the user is an admin
+
+#### `emp_access_controls`
+```sql
+CREATE TABLE IF NOT EXISTS emp_access_controls (
+    access_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organization_id UUID NOT NULL REFERENCES emp_organizations(organization_id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(organization_id, name)
+);
+```
+- **Purpose**: Defines access control structures for organizations
+- **Key Fields**:
+  - `access_id`: Unique identifier for the access control
+  - `organization_id`: Reference to the organization the access control belongs to
+  - `name`: Access control name
+  - `description`: Access control description
+
 ### Core Tables
 
 #### `emp_employees`
@@ -197,6 +252,53 @@ CREATE TABLE IF NOT EXISTS pm_metadata (
 
 ## Database Functions
 
+### Organization Management Functions
+
+#### `emp_register_organization`
+```sql
+CREATE OR REPLACE FUNCTION emp_register_organization(
+    p_organization_name VARCHAR(255),
+    p_admin_email VARCHAR(255),
+    p_admin_name VARCHAR(255)
+) RETURNS UUID AS $$
+```
+- **Purpose**: Creates a new organization and its first admin user
+- **Parameters**:
+  - `p_organization_name`: Name of the organization
+  - `p_admin_email`: Email of the initial admin user
+  - `p_admin_name`: Name of the initial admin user
+- **Returns**: The ID of the newly created organization
+
+#### `emp_add_admin_user`
+```sql
+CREATE OR REPLACE FUNCTION emp_add_admin_user(
+    p_organization_id UUID,
+    p_email VARCHAR(255),
+    p_name VARCHAR(255)
+) RETURNS UUID AS $$
+```
+- **Purpose**: Adds an additional admin user to an existing organization
+- **Parameters**:
+  - `p_organization_id`: ID of the organization
+  - `p_email`: Email of the new admin user
+  - `p_name`: Name of the new admin user
+- **Returns**: The ID of the newly created admin user
+
+#### `emp_setup_access_controls`
+```sql
+CREATE OR REPLACE FUNCTION emp_setup_access_controls(
+    p_organization_id UUID,
+    p_access_name VARCHAR(255),
+    p_description TEXT
+) RETURNS UUID AS $$
+```
+- **Purpose**: Creates access control entries for an organization
+- **Parameters**:
+  - `p_organization_id`: ID of the organization
+  - `p_access_name`: Name of the access control
+  - `p_description`: Description of the access control
+- **Returns**: The ID of the newly created access control
+
 ### Employee Management Functions
 
 #### `emp_create_employee`
@@ -366,6 +468,36 @@ CREATE OR REPLACE FUNCTION pm_create_task_log(
 
 ## Query Examples
 
+### Creating an Organization with Admin User
+
+```sql
+SELECT emp_register_organization(
+    'Acme Corporation',
+    'admin@acme.com',
+    'John Doe'
+);
+```
+
+### Adding an Admin User to an Organization
+
+```sql
+SELECT emp_add_admin_user(
+    '123e4567-e89b-12d3-a456-426614174000',
+    'jane@acme.com',
+    'Jane Smith'
+);
+```
+
+### Setting Up Access Controls for an Organization
+
+```sql
+SELECT emp_setup_access_controls(
+    '123e4567-e89b-12d3-a456-426614174000',
+    'HR_ACCESS',
+    'Access to HR-related functions and data'
+);
+```
+
 ### Creating an Employee with Tools
 
 ```sql
@@ -468,17 +600,53 @@ SELECT pm_create_task_log(
 
 ## Best Practices for LLM Interaction
 
+### Organization Management
+
+1. **Organization Verification**: Always verify that an organization exists before creating users, access controls, or employees for it.
+
+   ```sql
+   -- Good: Verify organization exists before creating an employee
+   IF NOT EXISTS (SELECT 1 FROM emp_organizations WHERE organization_id = p_organization_id) THEN
+       RAISE EXCEPTION 'Organization does not exist';
+   END IF;
+   ```
+
+2. **Admin User Verification**: Verify that a user is an admin before allowing them to perform administrative actions.
+
+   ```sql
+   -- Good: Verify user is an admin
+   IF NOT EXISTS (SELECT 1 FROM emp_users WHERE user_id = p_user_id AND is_admin = TRUE) THEN
+       RAISE EXCEPTION 'User is not an admin';
+   END IF;
+   ```
+
+3. **Access Control Validation**: Ensure that access controls belong to the correct organization.
+
+   ```sql
+   -- Good: Verify access control belongs to the organization
+   IF NOT EXISTS (SELECT 1 FROM emp_access_controls 
+                 WHERE access_id = ANY(p_access_list) 
+                 AND organization_id = p_organization_id) THEN
+       RAISE EXCEPTION 'One or more access controls do not belong to the organization';
+   END IF;
+   ```
+
+### Employee Management
+
 1. **Always check access permissions** before performing operations:
+
    ```sql
    SELECT emp_check_access('550e8400-e29b-41d4-a716-446655440002', '550e8400-e29b-41d4-a716-446655440003');
    ```
 
 2. **Use the full employee data function** to get complete information:
+
    ```sql
    SELECT * FROM emp_get_employee_full('550e8400-e29b-41d4-a716-446655440002');
    ```
 
 3. **Update task progress incrementally** rather than jumping to completion:
+
    ```sql
    -- First update
    SELECT emp_update_task_progress('550e8400-e29b-41d4-a716-446655440004', '550e8400-e29b-41d4-a716-446655440003', 'in_progress', 25, FALSE);
@@ -489,6 +657,7 @@ SELECT pm_create_task_log(
    ```
 
 4. **Keep metadata context-specific** and avoid storing large amounts of unstructured data:
+
    ```sql
    -- Good metadata
    '{
@@ -505,6 +674,7 @@ SELECT pm_create_task_log(
    ```
 
 5. **Verify project assignment** before creating project-related task logs:
+
    ```sql
    -- Check if employee is assigned to the project
    SELECT EXISTS (
@@ -515,6 +685,7 @@ SELECT pm_create_task_log(
    ```
 
 6. **Use transactions** for operations that modify multiple tables:
+
    ```sql
    BEGIN;
    -- Create task log
@@ -525,6 +696,22 @@ SELECT pm_create_task_log(
    ```
 
 ## Data Relationships
+
+### Organization Management Relationships
+
+```
+emp_organizations
+    ↓ 1:N
+emp_users (organization_id → organization_id)
+    ↓ 1:N (for admin users)
+emp_employees (organization_id → organization_id)
+
+emp_organizations
+    ↓ 1:N
+emp_access_controls (organization_id → organization_id)
+    ↓ N:M
+emp_employees (access_list → access_id[])
+```
 
 ### Employee Hierarchy
 ```

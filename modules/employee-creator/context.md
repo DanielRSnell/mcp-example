@@ -2,7 +2,85 @@
 
 ## Overview
 
-The Employee Creator Framework is a system for creating and managing virtual employees with specialized functions and standard operating procedures (SOPs). Each employee represents a role with specific capabilities and detailed step-by-step processes for accomplishing tasks. This framework allows organizations to standardize workflows, maintain consistent processes, and delegate specific responsibilities to virtual employees with defined expertise.
+The Employee Creator Framework is a database-driven system designed to create and manage virtual employees that can perform specific functions within an organization. Each employee has defined functions, standard operating procedures (SOPs), and step-by-step instructions, along with task logging and metadata capabilities for maintaining context across sessions.
+
+## Key Features
+
+1. **Organization Management**: Multi-tenant support with organization isolation and user management
+2. **User Administration**: Admin users can manage organizations and create virtual employees
+3. **Access Control**: Granular permission system for controlling access to resources
+4. **Employee Creation**: Create virtual employees with specific roles and capabilities
+5. **Function Definition**: Define what functions employees can perform
+6. **SOP Management**: Create standard operating procedures for each function
+7. **Step Sequencing**: Break down SOPs into sequential steps
+8. **Tool Access**: Employees have registered tools they can access with instructions on how to use them
+9. **Task Logging**: Track employee tasks and maintain progress information
+10. **Metadata Storage**: Store context-specific data for tasks to maintain continuity
+11. **Project Integration**: Assign employees to projects and track their contributions
+
+## Core Data Structures
+
+### Organization Structure
+
+```
+{
+  "organization_id": "UUID",
+  "name": "Organization Name",
+  "created_at": "timestamp",
+  "updated_at": "timestamp"
+}
+```
+
+### User Structure
+
+```
+{
+  "user_id": "UUID",
+  "email": "user@example.com",
+  "name": "User Name",
+  "organization_id": "UUID",
+  "is_admin": boolean,
+  "created_at": "timestamp",
+  "updated_at": "timestamp"
+}
+```
+
+### Access Control Structure
+
+```
+{
+  "access_id": "UUID",
+  "organization_id": "UUID",
+  "name": "Access Control Name",
+  "description": "Detailed description of this access control",
+  "created_at": "timestamp",
+  "updated_at": "timestamp"
+}
+```
+
+### Employee Structure
+
+```
+{
+  "employee_id": "UUID",
+  "name": "Employee Name",
+  "organization_id": "UUID",
+  "access_list": ["UUID", "UUID", ...],
+  "tool_access": [
+    {
+      "name": "tool_name",
+      "description": "Tool description",
+      "usage": "How to use this tool"
+    },
+    ...
+  ],
+  "role": "Employee Role",
+  "description": "Detailed description of employee purpose",
+  "status": "active|inactive|suspended",
+  "created_at": "timestamp",
+  "updated_at": "timestamp"
+}
+```
 
 ## When to Use the Employee Creator Framework
 
@@ -159,6 +237,15 @@ The task logging and metadata system enables:
 
 ## Best Practices
 
+### Organization Management
+
+1. **Isolation**: Maintain strict organization isolation for all data
+2. **Admin Access**: Limit admin user creation to trusted individuals
+3. **Access Structure**: Create a clear access control structure before adding employees
+4. **Verification**: Always verify organization existence before creating employees
+
+### Employee Management
+
 1. Be specific about employee roles and functions
 2. Create detailed, step-by-step SOPs for each function
 3. Include specific questions to ask at each step
@@ -174,10 +261,28 @@ The task logging and metadata system enables:
 13. Design metadata schema to facilitate easy resumption of tasks
 14. Collect feedback to improve processes over time
 
+## Key Processes
+
+### Organization Setup Process
+
+1. **Register Organization**: Create a new organization with a unique identifier
+2. **Create Admin User**: Set up the initial admin user for the organization
+3. **Configure Access Controls**: Define access control structures for the organization
+4. **Verify Setup**: Ensure the organization is properly configured before proceeding
+
+### Employee Creation Process
+
+1. **Define Basic Information**: Name, organization_id, access_list, role
+2. **Configure Tool Access**: Specify which tools the employee can access and use
+3. **Identify Functions**: List all functions the employee will perform
+4. **Create SOPs**: Develop detailed procedures for each function
+5. **Break Down Steps**: Define sequential steps for each SOP
+6. **Detail Actions**: Specify questions, actions, and tools for each step
+7. **Review and Refine**: Ensure all processes are complete and accurate
+8. **Activate Employee**: Set the employee status to active
+
 ## Implementation Note
 
-In the database, all tables and functions are prefixed with "emp_" (Employee Creator) to avoid naming conflicts. For example, employees are stored in the `emp_employees` table, SOPs in the `emp_sops` table, task logs in the `emp_task_logs` table, and metadata in the `emp_metadata` table.
+In the database, all tables and functions are prefixed with "emp_" (Employee Creator) to avoid naming conflicts. For example, organizations are stored in the `emp_organizations` table, users in the `emp_users` table, employees in the `emp_employees` table, SOPs in the `emp_sops` table, task logs in the `emp_task_logs` table, and metadata in the `emp_metadata` table.
 
-When using the database functions, remember to include the "emp_" prefix (e.g., `emp_create_employee()`, `emp_get_sop()`, `emp_create_task_log()`, `emp_update_metadata()`) and use `organization_id`, `access_list`, and `tool_access` to maintain proper access control and functionality.
-
-The database schema uses snake_case for field names (e.g., `employee_id`, `organization_id`, `tool_access`, `metadata_id`), while this document uses camelCase (e.g., `employeeId`, `organizationId`, `toolAccess`, `metadataId`) for conceptual clarity.
+When using the database functions, remember to include the "emp_" prefix (e.g., `emp_register_organization()`, `emp_add_admin_user()`, `emp_create_employee()`, `emp_get_sop()`, `emp_create_task_log()`, `emp_update_metadata()`) and use `organization_id`, `access_list`, and `tool_access` to maintain proper access control and functionality.
