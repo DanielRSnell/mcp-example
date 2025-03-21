@@ -2,6 +2,20 @@
 
 > **Schema Update**: This version uses the "sqt\_" prefix for all tables and functions to avoid naming conflicts. It also uses `chat_id` instead of `session_id` to prevent ambiguity between parameter and column names.
 
+## IMPORTANT: Required Fields and Non-null Constraints
+
+The sequential thinking database has several required fields with non-null constraints. When using the API functions, you MUST provide values for these fields to avoid errors:
+
+- **total_thoughts**: This field CANNOT be NULL when adding a thought. Always provide an integer estimate of the total number of thoughts, even if it's just your best guess. You can update this estimate in later thoughts.
+- **thought_number**: Must be a non-null integer indicating the current thought's position in the sequence.
+- **thought**: The actual content of the thought cannot be null.
+- **chat_id**: Must be a valid, non-null session identifier.
+
+Failure to provide these required values will result in database errors such as:
+```
+null value in column "total_thoughts" of relation "sqt_thoughts" violates not-null constraint
+```
+
 This document explains how to use the Sequential Thinking Database API to store and retrieve your thought processes. The API allows you to maintain persistent thinking sessions across interactions with PostgreSQL.
 
 ## Getting Started
@@ -31,7 +45,7 @@ To add a thought to your session:
 SELECT * FROM sqt_add_thought(
     'your_chat_id',       -- Your chat ID
     1,                    -- Current thought number (e.g., 1)
-    5,                    -- Estimated total thoughts (e.g., 5)
+    5,                    -- Estimated total thoughts (e.g., 5) - REQUIRED, CANNOT BE NULL
     'This is my first thought about the problem...',  -- The actual thought content
     TRUE,                 -- Boolean: is another thought needed?
     FALSE,                -- Boolean: is this revising an earlier thought?
