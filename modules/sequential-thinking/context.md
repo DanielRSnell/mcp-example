@@ -2,7 +2,7 @@
 
 ## Overview
 
-Sequential Thinking is a structured approach to problem-solving that breaks down complex reasoning into explicit steps. This framework helps you analyze problems through a flexible, dynamic, and reflective thinking process that can adapt and evolve as your understanding deepens.
+Sequential Thinking is a structured approach to problem-solving that breaks down complex reasoning into explicit steps. This framework helps you analyze problems through a flexible, dynamic, and reflective thinking process that can adapt and evolve as your understanding deepens. The system bridges the gap between ideation and implementation by supporting both the thinking process and its translation into executable action plans.
 
 ## When to Use Sequential Thinking
 
@@ -11,8 +11,9 @@ Sequential Thinking is a structured approach to problem-solving that breaks down
 - Analysis that might need course correction
 - Problems where the full scope is not clear initially
 - Tasks that require a multi-step solution
-- Reasoning that needs to maintain context over multiple steps
+- Reasoning that needs to maintain context over multiple sessions
 - Situations where irrelevant information needs to be filtered out
+- Projects that need structured execution plans after the thinking phase
 
 ## Key Features of Sequential Thinking
 
@@ -23,6 +24,8 @@ Sequential Thinking is a structured approach to problem-solving that breaks down
 - **Non-Linear**: Branch or backtrack rather than always building linearly
 - **Solution-Focused**: Generate and verify hypotheses systematically
 - **Iterative**: Repeat the process until satisfied with the solution
+- **Action-Oriented**: Convert completed thought sequences into actionable execution plans
+- **Persistent**: Store and resume complex reasoning across multiple sessions
 
 ## Thought Structure
 
@@ -35,8 +38,11 @@ Each thought in the sequential thinking process includes:
 - **isRevision**: Boolean indicating if this thought revises previous thinking
 - **revisesThoughtId**: If revising, which thought ID is being reconsidered
 - **branchFromThoughtId**: If branching, which thought ID is the branching point
-- **branchId**: Identifier for the current branch
+- **branchId**: Identifier for the current branch (up to 100 characters)
 - **needsMoreThoughts**: Boolean indicating if more thoughts are needed
+- **status**: Current state of the thought (active, completed, paused, abandoned)
+- **userPaused**: Boolean indicating if the user requested a pause
+- **executionState**: JSON data storing progress within a thought for resumption
 
 ## Types of Thoughts
 
@@ -49,6 +55,31 @@ You can use the sequential thinking framework for various types of reasoning:
 5. **Approach shifts**: Changing strategy or methodology
 6. **Hypothesis generation**: Proposing potential solutions
 7. **Verification**: Testing hypotheses against previous reasoning
+8. **Conclusion**: Summarizing the analysis and preparing for execution
+
+## Thought Limits and User Interaction
+
+The sequential thinking process is designed to be interactive with appropriate pauses for user feedback:
+
+- **Thought Limits**: There may be a limit to the number of consecutive thoughts before requiring user input (typically 5-10 thoughts)
+- **User Checkpoints**: After reaching the thought limit, the system will pause and wait for user confirmation before continuing
+- **Break Clauses**: Users can interrupt the thinking process at any point to provide additional input or redirect the analysis
+- **State Preservation**: When paused, the current execution state is saved so thinking can resume exactly where it left off
+- **User Overrides**: Users can manually override thought direction, branch into new paths, or adjust the total thoughts needed
+- **Continuation Requests**: The system can explicitly ask if more thinking is needed when nearing completion
+
+These interaction points help maintain user control over the thinking process while ensuring the reasoning remains on track with the user's goals.
+
+## Execution Plans
+
+Once the thinking process is complete, you can create detailed execution plans with:
+
+- **Steps**: Ordered tasks derived from your sequential thoughts
+- **Dependencies**: Relationships between steps (which must be completed first)
+- **Assignments**: Who is responsible for each step
+- **Timeframes**: Estimated duration for each step
+- **Priorities**: Importance levels for each step
+- **Status Tracking**: Monitor progress as steps are completed
 
 ## Best Practices
 
@@ -60,18 +91,28 @@ You can use the sequential thinking framework for various types of reasoning:
 6. Ignore information irrelevant to the current step
 7. Generate solution hypotheses when appropriate
 8. Verify hypotheses based on the chain of thought
-9. Repeat the process until satisfied with the solution
-10. Provide a single, ideally correct answer as the final output
-11. Only mark the process as complete when a satisfactory answer is reached
+9. Repeat the thinking process until satisfied with the solution
+10. Create an execution plan once the thinking process is complete
+11. Break down the execution plan into specific, actionable steps
+12. Track progress through the execution phase
+13. Only mark a session as complete when both thinking and execution are finished
 
-## Sessions and Persistence
+## Persistence and Continuity
 
-Your thoughts are automatically stored in a database with a session ID, allowing you to:
+Your thoughts and execution plans are stored in a database with session IDs (up to 100 characters), allowing you to:
 
 - Resume thinking where you left off
 - Reference and revise previous thoughts
 - Create branches from existing thoughts
 - Track the evolution of your reasoning process
 - Review your complete thinking history
+- Save your state mid-thought and resume later
+- Convert completed thought sequences into execution plans
+- Track progress through execution of the plan
+- Maintain context across multiple user sessions
 
-Use the provided database functions to interact with your thoughts and maintain a coherent reasoning process across interactions.
+## Implementation Note
+
+In the database, all tables and functions are prefixed with "sqt\_" (Sequential Quantum Thinking) to avoid naming conflicts. For example, thoughts are stored in the `sqt_thoughts` table and sessions in the `sqt_sessions` table. When using the database functions, remember to include this prefix (e.g., `sqt_add_thought()`, `sqt_get_active_thought()`).
+
+The database schema uses snake_case for field names (e.g., `thought_number`, `next_thought_needed`), while this document uses camelCase (e.g., `thoughtNumber`, `nextThoughtNeeded`) for conceptual clarity.
