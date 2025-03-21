@@ -1,0 +1,8 @@
+[
+  { "file": "context", "ext": ".md", "output": null, "project": "/modules/employee-creator/" },
+  { "file": "schema", "ext": ".md", "output": null, "project": "/modules/employee-creator/" },
+  { "file": "onboarding", "ext": ".md", "output": null, "project": "/modules/employee-creator/" },
+  { "file": "setup", "ext": ".sql", "output": null, "project": "/modules/employee-creator/" },
+  { "file": "system", "ext": ".md", "output": null, "project": "/modules/employee-creator/general/" },
+  { "file": "user", "ext": ".md", "output": null, "project": "/modules/employee-creator/general/" }
+]

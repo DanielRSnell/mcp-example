@@ -1,0 +1,5 @@
+[
+  { "file": "instructions", "ext": ".md", "output": null, "project": "/modules/project-manager/" },
+  { "file": "schema", "ext": ".md", "output": null, "project": "/modules/project-manager/" },
+  { "file": "setup", "ext": ".sql", "output": null, "project": "/modules/project-manager/" }
+]

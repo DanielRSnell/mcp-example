@@ -1,0 +1,5 @@
+[
+  { "file": "context", "ext": ".md", "output": null, "project": "/modules/sequential-thinking/" },
+  { "file": "instructions", "ext": ".md", "output": null, "project": "/modules/sequential-thinking/" },
+  { "file": "setup", "ext": ".sql", "output": null, "project": "/modules/sequential-thinking/" }
+]
