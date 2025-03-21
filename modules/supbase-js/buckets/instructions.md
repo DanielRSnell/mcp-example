@@ -4,6 +4,22 @@
 
 The `supabase_mediabucket_eval` tool allows you to execute JavaScript code that interacts with Supabase storage. This tool is designed for managing buckets and files with a focus on media storage operations.
 
+## ⚠️ MANDATORY RULE: QUERY Parameter Required ⚠️
+
+**THE QUERY PARAMETER IS STRICTLY REQUIRED WHEN USING THIS TOOL.**
+
+- You MUST pass a valid JavaScript code string as the QUERY parameter
+- The tool will FAIL if the QUERY parameter is missing or empty
+- The QUERY parameter contains the actual JavaScript code to be executed
+- No default code will be executed if QUERY is omitted
+
+Example of correct usage:
+```
+supabase_mediabucket_eval(QUERY: "return await supabase.storage.listBuckets();")
+```
+
+Failure to include the QUERY parameter will result in execution errors and no operations will be performed.
+
 ## How the Tool Works Internally
 
 The tool uses the following code to execute your JavaScript via a Function constructor:
