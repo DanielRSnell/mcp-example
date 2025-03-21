@@ -1,19 +1,24 @@
--- Project Management Database Schema
+-- Project Management Database Schema with Employee Creator Framework Integration
 -- 
--- This schema creates a complete project management system with clients, projects, cycles, and issues.
+-- This schema creates a complete project management system with clients, projects, cycles, and issues
+-- while integrating with the Employee Creator Framework for virtual employee management.
+--
 -- The schema includes proper relationships:
 -- - Projects belong to Clients (many-to-one)
 -- - Issues belong to Projects (many-to-one)
 -- - Issues can belong to Cycles (many-to-one)
 -- - Issues can have many Tags (many-to-many)
+-- - Employees can be assigned to Projects and Issues
+-- - Task logs track employee activities on issues
 --
 -- Usage:
 -- 1. Run this script against a PostgreSQL database to set up the schema
 -- 2. The script will first drop any existing tables and types (reset)
 -- 3. Then it will create all tables with proper relationships
 -- 4. Finally, it will populate the instructions table with query examples
---
--- Example: psql -U username -d database_name -f project_management_schema.sql
+
+-- Enable UUID extension if not already enabled
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Reset section - Drop all tables and types if they exist
 DROP TABLE IF EXISTS issue_tags CASCADE;
@@ -24,6 +29,9 @@ DROP TABLE IF EXISTS projects CASCADE;
 DROP TABLE IF EXISTS clients CASCADE;
 DROP TABLE IF EXISTS tags CASCADE;
 DROP TABLE IF EXISTS instructions CASCADE;
+DROP TABLE IF EXISTS pm_task_logs CASCADE;
+DROP TABLE IF EXISTS pm_metadata CASCADE;
+DROP TABLE IF EXISTS pm_employee_assignments CASCADE;
 
 -- Drop custom types if they exist
 DROP TYPE IF EXISTS issue_status CASCADE;
@@ -44,6 +52,7 @@ CREATE TABLE projects (
     title VARCHAR(255) NOT NULL,
     client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
     description TEXT,
+    organization_id UUID, -- Link to organization in Employee Creator Framework
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -78,6 +87,7 @@ CREATE TABLE issues (
     project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
     cycle_id INTEGER REFERENCES cycles(id) ON DELETE SET NULL,
     assignee_id INTEGER, -- This would reference a users table if you add one
+    employee_id UUID, -- Reference to an employee in the Employee Creator Framework
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -105,6 +115,53 @@ CREATE TABLE comments (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Employee Assignments (linking employees to projects)
+CREATE TABLE pm_employee_assignments (
+    assignment_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    employee_id UUID NOT NULL, -- Reference to emp_employees
+    project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+    role VARCHAR(100),
+    assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Project Metadata Table (for storing context-specific data)
+CREATE TABLE pm_metadata (
+    metadata_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+    issue_id INTEGER REFERENCES issues(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL,
+    content JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT project_or_issue_required CHECK (
+        (project_id IS NOT NULL AND issue_id IS NULL) OR
+        (project_id IS NULL AND issue_id IS NOT NULL)
+    )
+);
+
+-- Task Logs Table (for tracking employee activities)
+CREATE TABLE pm_task_logs (
+    log_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    task_id UUID NOT NULL,
+    employee_id UUID NOT NULL, -- Reference to emp_employees
+    user_id UUID NOT NULL,
+    issue_id INTEGER REFERENCES issues(id) ON DELETE CASCADE,
+    function_id UUID, -- Reference to emp_functions
+    sop_id UUID, -- Reference to emp_sops
+    current_step_id UUID, -- Reference to emp_steps
+    status VARCHAR(50) NOT NULL DEFAULT 'started',
+    completion_flag BOOLEAN NOT NULL DEFAULT FALSE,
+    progress_percentage INTEGER NOT NULL DEFAULT 0,
+    started_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    notes TEXT,
+    metadata_id UUID REFERENCES pm_metadata(metadata_id),
+    CONSTRAINT progress_percentage_range CHECK (progress_percentage >= 0 AND progress_percentage <= 100),
+    CONSTRAINT valid_status CHECK (status IN ('started', 'in_progress', 'completed', 'paused', 'cancelled'))
+);
+
 -- Instructions Table (for documentation on how to use the database)
 CREATE TABLE instructions (
     id SERIAL PRIMARY KEY,
@@ -114,6 +171,306 @@ CREATE TABLE instructions (
     parameters TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Create a function to update the updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create triggers to automatically update the updated_at column
+CREATE TRIGGER update_clients_updated_at
+BEFORE UPDATE ON clients
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_projects_updated_at
+BEFORE UPDATE ON projects
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_cycles_updated_at
+BEFORE UPDATE ON cycles
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_issues_updated_at
+BEFORE UPDATE ON issues
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_pm_employee_assignments_updated_at
+BEFORE UPDATE ON pm_employee_assignments
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_pm_metadata_updated_at
+BEFORE UPDATE ON pm_metadata
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_pm_task_logs_updated_at
+BEFORE UPDATE ON pm_task_logs
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+-- Function to assign an employee to a project
+CREATE OR REPLACE FUNCTION pm_assign_employee_to_project(
+    p_employee_id UUID,
+    p_project_id INTEGER,
+    p_role VARCHAR(100)
+) RETURNS UUID AS $$
+DECLARE
+    v_assignment_id UUID;
+BEGIN
+    INSERT INTO pm_employee_assignments (
+        employee_id,
+        project_id,
+        role
+    ) VALUES (
+        p_employee_id,
+        p_project_id,
+        p_role
+    ) RETURNING assignment_id INTO v_assignment_id;
+    
+    RETURN v_assignment_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to create a task log for an issue
+CREATE OR REPLACE FUNCTION pm_create_task_log(
+    p_task_id UUID,
+    p_employee_id UUID,
+    p_user_id UUID,
+    p_issue_id INTEGER,
+    p_function_id UUID,
+    p_notes TEXT DEFAULT NULL
+) RETURNS UUID AS $$
+DECLARE
+    v_log_id UUID;
+    v_metadata_id UUID;
+    v_has_access BOOLEAN;
+BEGIN
+    -- Check if the employee is assigned to the project containing this issue
+    SELECT EXISTS (
+        SELECT 1 
+        FROM pm_employee_assignments ea
+        JOIN issues i ON i.project_id = ea.project_id
+        WHERE ea.employee_id = p_employee_id
+        AND i.id = p_issue_id
+    ) INTO v_has_access;
+    
+    IF NOT v_has_access THEN
+        RAISE EXCEPTION 'Employee is not assigned to the project containing this issue';
+    END IF;
+    
+    -- Create metadata record
+    INSERT INTO pm_metadata (
+        issue_id,
+        user_id,
+        content
+    ) VALUES (
+        p_issue_id,
+        p_user_id,
+        '{}'::jsonb
+    ) RETURNING metadata_id INTO v_metadata_id;
+    
+    -- Create task log
+    INSERT INTO pm_task_logs (
+        task_id,
+        employee_id,
+        user_id,
+        issue_id,
+        function_id,
+        status,
+        notes,
+        metadata_id
+    ) VALUES (
+        p_task_id,
+        p_employee_id,
+        p_user_id,
+        p_issue_id,
+        p_function_id,
+        'started',
+        p_notes,
+        v_metadata_id
+    ) RETURNING log_id INTO v_log_id;
+    
+    RETURN v_log_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to update task progress
+CREATE OR REPLACE FUNCTION pm_update_task_progress(
+    p_task_id UUID,
+    p_user_id UUID,
+    p_current_step_id UUID DEFAULT NULL,
+    p_status VARCHAR(50) DEFAULT NULL,
+    p_progress_percentage INTEGER DEFAULT NULL,
+    p_notes TEXT DEFAULT NULL,
+    p_completion_flag BOOLEAN DEFAULT NULL
+) RETURNS BOOLEAN AS $$
+DECLARE
+    v_task_log_id UUID;
+    v_completed_at TIMESTAMP WITH TIME ZONE;
+    v_issue_id INTEGER;
+BEGIN
+    -- Get the task log ID
+    SELECT log_id, issue_id INTO v_task_log_id, v_issue_id
+    FROM pm_task_logs
+    WHERE task_id = p_task_id AND user_id = p_user_id;
+    
+    IF v_task_log_id IS NULL THEN
+        RAISE EXCEPTION 'Task log not found for task_id % and user_id %', p_task_id, p_user_id;
+    END IF;
+    
+    -- Set completed_at if task is being marked as complete
+    IF p_completion_flag IS TRUE THEN
+        v_completed_at := CURRENT_TIMESTAMP;
+        
+        -- If task is completed, update the issue status to 'done' if it's not already
+        IF v_issue_id IS NOT NULL THEN
+            UPDATE issues
+            SET status = 'done'
+            WHERE id = v_issue_id AND status != 'done';
+        END IF;
+    END IF;
+    
+    -- Update the task log
+    UPDATE pm_task_logs
+    SET 
+        current_step_id = COALESCE(p_current_step_id, current_step_id),
+        status = COALESCE(p_status, status),
+        progress_percentage = COALESCE(p_progress_percentage, progress_percentage),
+        notes = CASE WHEN p_notes IS NOT NULL THEN 
+                    CASE WHEN notes IS NULL THEN p_notes 
+                    ELSE notes || E'\n' || p_notes END
+                ELSE notes END,
+        completion_flag = COALESCE(p_completion_flag, completion_flag),
+        completed_at = COALESCE(v_completed_at, completed_at)
+    WHERE log_id = v_task_log_id;
+    
+    RETURN FOUND;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to update task metadata
+CREATE OR REPLACE FUNCTION pm_update_metadata(
+    p_metadata_id UUID,
+    p_content JSONB
+) RETURNS BOOLEAN AS $$
+BEGIN
+    -- Update the metadata
+    UPDATE pm_metadata
+    SET content = p_content
+    WHERE metadata_id = p_metadata_id;
+    
+    RETURN FOUND;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get task metadata
+CREATE OR REPLACE FUNCTION pm_get_metadata(
+    p_metadata_id UUID
+) RETURNS JSONB AS $$
+DECLARE
+    v_content JSONB;
+BEGIN
+    SELECT content INTO v_content
+    FROM pm_metadata
+    WHERE metadata_id = p_metadata_id;
+    
+    RETURN v_content;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get active tasks for a user
+CREATE OR REPLACE FUNCTION pm_get_user_tasks(
+    p_user_id UUID,
+    p_include_completed BOOLEAN DEFAULT FALSE
+) RETURNS JSONB AS $$
+DECLARE
+    v_result JSONB;
+BEGIN
+    WITH task_data AS (
+        SELECT 
+            tl.task_id,
+            tl.log_id,
+            tl.employee_id,
+            tl.issue_id,
+            i.title AS issue_title,
+            i.status AS issue_status,
+            p.id AS project_id,
+            p.title AS project_title,
+            tl.status,
+            tl.completion_flag,
+            tl.progress_percentage,
+            tl.started_at,
+            tl.updated_at,
+            tl.completed_at,
+            tl.notes,
+            tl.metadata_id,
+            m.content AS metadata
+        FROM pm_task_logs tl
+        JOIN issues i ON tl.issue_id = i.id
+        JOIN projects p ON i.project_id = p.id
+        LEFT JOIN pm_metadata m ON tl.metadata_id = m.metadata_id
+        WHERE tl.user_id = p_user_id
+        AND (p_include_completed OR tl.completion_flag = FALSE)
+    )
+    SELECT jsonb_agg(
+        jsonb_build_object(
+            'task_id', td.task_id,
+            'log_id', td.log_id,
+            'issue', jsonb_build_object(
+                'issue_id', td.issue_id,
+                'title', td.issue_title,
+                'status', td.issue_status
+            ),
+            'project', jsonb_build_object(
+                'project_id', td.project_id,
+                'title', td.project_title
+            ),
+            'status', td.status,
+            'completion_flag', td.completion_flag,
+            'progress_percentage', td.progress_percentage,
+            'started_at', td.started_at,
+            'updated_at', td.updated_at,
+            'completed_at', td.completed_at,
+            'notes', td.notes,
+            'metadata', td.metadata
+        )
+    ) INTO v_result
+    FROM task_data td;
+    
+    RETURN COALESCE(v_result, '[]'::jsonb);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get all employees assigned to a project
+CREATE OR REPLACE FUNCTION pm_get_project_employees(
+    p_project_id INTEGER
+) RETURNS JSONB AS $$
+DECLARE
+    v_result JSONB;
+BEGIN
+    SELECT jsonb_agg(
+        jsonb_build_object(
+            'assignment_id', ea.assignment_id,
+            'employee_id', ea.employee_id,
+            'role', ea.role,
+            'assigned_at', ea.assigned_at
+        )
+    ) INTO v_result
+    FROM pm_employee_assignments ea
+    WHERE ea.project_id = p_project_id;
+    
+    RETURN COALESCE(v_result, '[]'::jsonb);
+END;
+$$ LANGUAGE plpgsql;
 
 -- Insert sample instructions
 INSERT INTO instructions (operation, description, query_example, parameters) VALUES
@@ -132,8 +489,8 @@ project_id (integer): The project ID to filter by');
 INSERT INTO instructions (operation, description, query_example, parameters) VALUES
 ('CREATE_ISSUE', 
 'Creates a new issue in the system.', 
-'INSERT INTO issues (title, description, status, priority, estimate, due_date, project_id, cycle_id)
- VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+'INSERT INTO issues (title, description, status, priority, estimate, due_date, project_id, cycle_id, employee_id)
+ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
  RETURNING id;',
 'title (varchar): Issue title
 description (text): Issue description
@@ -142,254 +499,41 @@ priority (issue_priority): Issue priority
 estimate (float): Time estimate
 due_date (date): Due date
 project_id (integer): Associated project ID
-cycle_id (integer): Associated cycle ID (optional)');
+cycle_id (integer): Associated cycle ID (optional)
+employee_id (uuid): Associated employee ID (optional)');
 
 INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('GET_PROJECT_SUMMARY', 
-'Gets a summary of a project with issue counts by status.', 
-'SELECT p.id, p.title, c.name as client_name,
-        COUNT(i.id) as total_issues,
-        SUM(CASE WHEN i.status = ''backlog'' THEN 1 ELSE 0 END) as backlog_count,
-        SUM(CASE WHEN i.status = ''todo'' THEN 1 ELSE 0 END) as todo_count,
-        SUM(CASE WHEN i.status = ''in_progress'' THEN 1 ELSE 0 END) as in_progress_count,
-        SUM(CASE WHEN i.status = ''review'' THEN 1 ELSE 0 END) as review_count,
-        SUM(CASE WHEN i.status = ''done'' THEN 1 ELSE 0 END) as done_count
- FROM projects p
- LEFT JOIN clients c ON p.client_id = c.id
- LEFT JOIN issues i ON i.project_id = p.id
- WHERE p.id = $1
- GROUP BY p.id, p.title, c.name;',
-'project_id (integer): The project ID to summarize');
+('ASSIGN_EMPLOYEE_TO_PROJECT', 
+'Assigns an employee to a project.', 
+'SELECT pm_assign_employee_to_project($1, $2, $3);',
+'employee_id (uuid): The employee ID to assign
+project_id (integer): The project ID to assign to
+role (varchar): The role of the employee in the project');
 
 INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('GET_CYCLE_ISSUES', 
-'Gets all issues for a specific cycle.', 
-'SELECT i.id, i.title, i.status, i.priority, i.estimate, i.due_date
- FROM issues i
- WHERE i.cycle_id = $1
- ORDER BY i.priority DESC, i.due_date ASC;',
-'cycle_id (integer): The cycle ID to query');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('UPDATE_ISSUE_STATUS', 
-'Updates the status of an issue.', 
-'UPDATE issues
- SET status = $1, updated_at = CURRENT_TIMESTAMP
- WHERE id = $2
- RETURNING id, title, status;',
-'status (issue_status): The new status
-issue_id (integer): The issue ID to update');
-
--- Additional comprehensive instructions
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('CREATE_CLIENT', 
-'Creates a new client in the system.', 
-'INSERT INTO clients (name, logo)
- VALUES ($1, $2)
- RETURNING id, name;',
-'name (varchar): Client name
-logo (text): URL or path to client logo image');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('CREATE_PROJECT', 
-'Creates a new project associated with a client.', 
-'INSERT INTO projects (title, description, client_id)
- VALUES ($1, $2, $3)
- RETURNING id, title;',
-'title (varchar): Project title
-description (text): Project description
-client_id (integer): Associated client ID');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('CREATE_CYCLE', 
-'Creates a new cycle for a project.', 
-'INSERT INTO cycles (name, project_id, start_date, end_date, status)
- VALUES ($1, $2, $3, $4, $5)
- RETURNING id, name;',
-'name (varchar): Cycle name
-project_id (integer): Associated project ID
-start_date (date): Cycle start date
-end_date (date): Cycle end date
-status (varchar): Cycle status (planned, active, completed)');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('GET_ALL_CLIENTS', 
-'Retrieves all clients with project counts.', 
-'SELECT c.id, c.name, c.logo, COUNT(p.id) as project_count
- FROM clients c
- LEFT JOIN projects p ON c.id = p.client_id
- GROUP BY c.id, c.name, c.logo
- ORDER BY c.name;',
-'No parameters required');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('GET_CLIENT_PROJECTS', 
-'Retrieves all projects for a specific client.', 
-'SELECT p.id, p.title, p.description, 
-        COUNT(i.id) as issue_count,
-        SUM(CASE WHEN i.status = ''done'' THEN 1 ELSE 0 END) as completed_issues
- FROM projects p
- LEFT JOIN issues i ON p.id = i.project_id
- WHERE p.client_id = $1
- GROUP BY p.id, p.title, p.description
- ORDER BY p.title;',
-'client_id (integer): The client ID to filter by');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('GET_PROJECT_CYCLES', 
-'Retrieves all cycles for a specific project.', 
-'SELECT c.id, c.name, c.start_date, c.end_date, c.status,
-        COUNT(i.id) as issue_count
- FROM cycles c
- LEFT JOIN issues i ON c.id = i.cycle_id
- WHERE c.project_id = $1
- GROUP BY c.id, c.name, c.start_date, c.end_date, c.status
- ORDER BY c.start_date;',
-'project_id (integer): The project ID to filter by');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('UPDATE_ISSUE', 
-'Updates an existing issue with new values.', 
-'UPDATE issues
- SET title = $1, 
-     description = $2,
-     status = $3,
-     priority = $4,
-     estimate = $5,
-     due_date = $6,
-     cycle_id = $7,
-     updated_at = CURRENT_TIMESTAMP
- WHERE id = $8
- RETURNING id, title;',
-'title (varchar): Issue title
-description (text): Issue description
-status (issue_status): Issue status
-priority (issue_priority): Issue priority
-estimate (float): Time estimate
-due_date (date): Due date
-cycle_id (integer): Associated cycle ID
-issue_id (integer): The issue ID to update');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('DELETE_ISSUE', 
-'Deletes an issue from the system.', 
-'DELETE FROM issues
- WHERE id = $1
- RETURNING id;',
-'issue_id (integer): The issue ID to delete');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('ADD_TAG_TO_ISSUE', 
-'Adds a tag to an issue.', 
-'INSERT INTO issue_tags (issue_id, tag_id)
- VALUES ($1, $2)
- ON CONFLICT (issue_id, tag_id) DO NOTHING
- RETURNING issue_id, tag_id;',
-'issue_id (integer): The issue ID
-tag_id (integer): The tag ID');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('REMOVE_TAG_FROM_ISSUE', 
-'Removes a tag from an issue.', 
-'DELETE FROM issue_tags
- WHERE issue_id = $1 AND tag_id = $2
- RETURNING issue_id, tag_id;',
-'issue_id (integer): The issue ID
-tag_id (integer): The tag ID');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('ADD_COMMENT_TO_ISSUE', 
-'Adds a comment to an issue.', 
-'INSERT INTO comments (issue_id, user_id, content)
- VALUES ($1, $2, $3)
- RETURNING id, content;',
-'issue_id (integer): The issue ID
-user_id (integer): The user ID making the comment
-content (text): The comment text');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('GET_ISSUE_COMMENTS', 
-'Retrieves all comments for a specific issue.', 
-'SELECT c.id, c.content, c.created_at, c.user_id
- FROM comments c
- WHERE c.issue_id = $1
- ORDER BY c.created_at;',
-'issue_id (integer): The issue ID to get comments for');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('GET_ISSUE_DETAILS', 
-'Retrieves detailed information about an issue including project, client, and tags.', 
-'SELECT i.id, i.title, i.description, i.status, i.priority, i.estimate, i.due_date,
-        i.created_at, i.updated_at,
-        p.id as project_id, p.title as project_title,
-        c.id as client_id, c.name as client_name,
-        cy.id as cycle_id, cy.name as cycle_name,
-        ARRAY_AGG(DISTINCT t.name) FILTER (WHERE t.id IS NOT NULL) as tags
- FROM issues i
- JOIN projects p ON i.project_id = p.id
- JOIN clients c ON p.client_id = c.id
- LEFT JOIN cycles cy ON i.cycle_id = cy.id
- LEFT JOIN issue_tags it ON i.id = it.issue_id
- LEFT JOIN tags t ON it.tag_id = t.id
- WHERE i.id = $1
- GROUP BY i.id, i.title, i.description, i.status, i.priority, i.estimate, i.due_date,
-          i.created_at, i.updated_at, p.id, p.title, c.id, c.name, cy.id, cy.name;',
-'issue_id (integer): The issue ID to get details for');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('GET_ISSUES_BY_PRIORITY', 
-'Retrieves issues filtered by priority level.', 
-'SELECT i.id, i.title, i.status, i.priority, i.due_date,
-        p.title as project_title
- FROM issues i
- JOIN projects p ON i.project_id = p.id
- WHERE i.priority = $1
- ORDER BY i.due_date ASC;',
-'priority (issue_priority): The priority level to filter by');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('GET_OVERDUE_ISSUES', 
-'Retrieves all issues that are past their due date and not completed.', 
-'SELECT i.id, i.title, i.status, i.priority, i.due_date,
-        p.title as project_title, c.name as client_name
- FROM issues i
- JOIN projects p ON i.project_id = p.id
- JOIN clients c ON p.client_id = c.id
- WHERE i.due_date < CURRENT_DATE
-   AND i.status != ''done''
- ORDER BY i.due_date ASC, i.priority DESC;',
-'No parameters required');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('MOVE_ISSUES_TO_CYCLE', 
-'Moves multiple issues to a specific cycle.', 
-'UPDATE issues
- SET cycle_id = $1, updated_at = CURRENT_TIMESTAMP
- WHERE id = ANY($2::int[])
- RETURNING id, title;',
-'cycle_id (integer): The cycle ID to move issues to
-issue_ids (integer[]): Array of issue IDs to move');
-
-INSERT INTO instructions (operation, description, query_example, parameters) VALUES
-('GET_PROJECT_PROGRESS', 
-'Gets the overall progress of a project based on completed vs total issues.', 
-'SELECT p.id, p.title,
-        COUNT(i.id) as total_issues,
-        SUM(CASE WHEN i.status = ''done'' THEN 1 ELSE 0 END) as completed_issues,
-        CASE 
-            WHEN COUNT(i.id) > 0 THEN 
-                ROUND((SUM(CASE WHEN i.status = ''done'' THEN 1 ELSE 0 END)::numeric / COUNT(i.id)::numeric) * 100, 2)
-            ELSE 0
-        END as completion_percentage
- FROM projects p
- LEFT JOIN issues i ON p.id = i.project_id
- WHERE p.id = $1
- GROUP BY p.id, p.title;',
-'project_id (integer): The project ID to get progress for');
+('CREATE_TASK_LOG', 
+'Creates a task log for an issue.', 
+'SELECT pm_create_task_log($1, $2, $3, $4, $5, $6);',
+'task_id (uuid): Unique identifier for the task
+employee_id (uuid): The employee performing the task
+user_id (uuid): The user the task is being performed for
+issue_id (integer): The issue ID for the task
+function_id (uuid): The function being performed
+notes (text): Additional notes about the task (optional)');
 
 -- Indexes for performance
 CREATE INDEX idx_issues_project_id ON issues(project_id);
 CREATE INDEX idx_issues_cycle_id ON issues(cycle_id);
 CREATE INDEX idx_issues_status ON issues(status);
+CREATE INDEX idx_issues_employee_id ON issues(employee_id);
 CREATE INDEX idx_projects_client_id ON projects(client_id);
+CREATE INDEX idx_projects_organization_id ON projects(organization_id);
+CREATE INDEX idx_pm_employee_assignments_employee_id ON pm_employee_assignments(employee_id);
+CREATE INDEX idx_pm_employee_assignments_project_id ON pm_employee_assignments(project_id);
+CREATE INDEX idx_pm_task_logs_task_id ON pm_task_logs(task_id);
+CREATE INDEX idx_pm_task_logs_user_id ON pm_task_logs(user_id);
+CREATE INDEX idx_pm_task_logs_employee_id ON pm_task_logs(employee_id);
+CREATE INDEX idx_pm_task_logs_issue_id ON pm_task_logs(issue_id);
+CREATE INDEX idx_pm_metadata_project_id ON pm_metadata(project_id);
+CREATE INDEX idx_pm_metadata_issue_id ON pm_metadata(issue_id);
+CREATE INDEX idx_pm_metadata_user_id ON pm_metadata(user_id);

@@ -20,6 +20,31 @@ supabase_mediabucket_eval(QUERY: "return await supabase.storage.listBuckets();")
 
 Failure to include the QUERY parameter will result in execution errors and no operations will be performed.
 
+## ⚠️ MANDATORY RULE: Return URL to Bucket Items ⚠️
+
+**YOUR RESPONSE MUST INCLUDE A PUBLIC URL TO ANY CREATED OR MODIFIED BUCKET ITEM.**
+
+- When uploading or modifying files, you MUST return a public URL to access the item
+- The response object MUST include a `publicURL` property with the complete URL
+- For operations that create multiple items, include URLs for ALL created items
+- No operation is considered complete without returning the appropriate URL(s)
+
+Example of correct return format:
+```javascript
+return {
+  success: true,
+  message: "File uploaded successfully",
+  data: {
+    path: "folder/file.ext",
+    bucket: "media",
+    publicURL: "https://wpefpfebiyopiagmwrgm.supabase.co/storage/v1/object/public/media/folder/file.ext"
+  }
+};
+```
+
+The URL format should be:
+`https://[PROJECT_ID].supabase.co/storage/v1/object/public/[BUCKET_NAME]/[FILE_PATH]`
+
 ## How the Tool Works Internally
 
 The tool uses the following code to execute your JavaScript via a Function constructor:
@@ -113,96 +138,150 @@ This pattern works because:
 - Always handle errors explicitly with try/catch
 - Return values must be simple strings, not objects
 
-## Common Operations Examples
+## Examples of Common Operations
 
-### 1. Check if a Bucket Exists
-
-```javascript
-// List all buckets
-const { data: buckets, error: listError } =
-  await supabase.storage.listBuckets();
-
-if (listError) {
-  throw new Error(`Failed to list buckets: ${listError.message}`);
-}
-
-// Check if our target bucket exists
-const bucketExists = buckets.some((bucket) => bucket.name === "media");
-console.log(`Media bucket exists: ${bucketExists}`);
-```
-
-### 2. Create a New Bucket
+### 1. Creating a Bucket
 
 ```javascript
-// Only create if it doesn't exist
-if (!bucketExists) {
-  const { data, error: createError } = await supabase.storage.createBucket(
-    "media",
-    {
-      public: true, // Make files publicly accessible
-      fileSizeLimit: 1024 * 1024 * 50, // 50MB file size limit
-    }
-  );
+return (async () => {
+  try {
+    const bucketName = "media";
+    const { data, error } = await supabase.storage.createBucket(bucketName, {
+      public: true,
+      fileSizeLimit: 1024 * 1024 * 10, // 10MB
+    });
 
-  if (createError) {
-    throw new Error(`Failed to create bucket: ${createError.message}`);
+    if (error) throw error;
+
+    return {
+      success: true,
+      message: `Bucket '${bucketName}' created successfully`,
+      data: {
+        bucket: bucketName,
+        publicURL: `https://wpefpfebiyopiagmwrgm.supabase.co/storage/v1/object/public/${bucketName}`
+      }
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: "Error creating bucket",
+      error: err.message || String(err),
+    };
   }
-
-  console.log("Media bucket created successfully");
-}
+})();
 ```
 
-### 3. Upload a New Markdown File
+### 2. Uploading a File
 
 ```javascript
-const filePath = "blog/welcome.md";
-const fileContent = `# Welcome\n\nThis is a sample markdown file created on ${new Date().toISOString()}`;
+return (async () => {
+  try {
+    const bucketName = "media";
+    const filePath = "docs/example.md";
+    const fileContent = "# Example Document\n\nThis is an example markdown file.";
 
-const { data, error: uploadError } = await supabase.storage
-  .from("media")
-  .upload(filePath, fileContent, {
-    contentType: "text/markdown",
-    upsert: false, // Set to false to prevent overwriting existing files
-  });
+    const { data, error: uploadError } = await supabase.storage
+      .from(bucketName)
+      .upload(filePath, fileContent, {
+        contentType: "text/markdown",
+        upsert: false,
+      });
 
-if (uploadError) {
-  throw new Error(`Failed to upload file: ${uploadError.message}`);
-}
+    if (uploadError) throw uploadError;
 
-console.log(`File uploaded successfully to ${filePath}`);
+    // REQUIRED: Generate and return the public URL
+    const publicURL = `https://wpefpfebiyopiagmwrgm.supabase.co/storage/v1/object/public/${bucketName}/${filePath}`;
+    
+    return {
+      success: true,
+      message: "File uploaded successfully",
+      data: {
+        path: filePath,
+        bucket: bucketName,
+        publicURL: publicURL
+      }
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: "Error uploading file",
+      error: err.message || String(err),
+    };
+  }
+})();
 ```
 
-### 4. Update an Existing File
+### 3. Listing Files in a Bucket
 
 ```javascript
-// Update existing file or create if it doesn't exist
-const { data, error: updateError } = await supabase.storage
-  .from("media")
-  .upload(filePath, updatedContent, {
-    contentType: "text/markdown",
-    upsert: true, // Set to true to overwrite if the file exists
-  });
+return (async () => {
+  try {
+    const bucketName = "media";
+    const { data, error } = await supabase.storage.from(bucketName).list();
 
-if (updateError) {
-  throw new Error(`Failed to update file: ${updateError.message}`);
-}
+    if (error) throw error;
 
-console.log(`File updated successfully at ${filePath}`);
+    // REQUIRED: Generate public URLs for all files
+    const filesWithURLs = data.map(file => ({
+      ...file,
+      publicURL: `https://wpefpfebiyopiagmwrgm.supabase.co/storage/v1/object/public/${bucketName}/${file.name}`
+    }));
+
+    return {
+      success: true,
+      message: `Successfully listed files in '${bucketName}' bucket`,
+      data: {
+        bucket: bucketName,
+        files: filesWithURLs,
+        bucketURL: `https://wpefpfebiyopiagmwrgm.supabase.co/storage/v1/object/public/${bucketName}`
+      }
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: "Error listing files",
+      error: err.message || String(err),
+    };
+  }
+})();
 ```
 
-### 5. Check if a File Exists
+### 4. Moving/Renaming a File
 
 ```javascript
-const { data, error: listError } = await supabase.storage
-  .from("media")
-  .list("blog"); // List files in the 'blog' folder
+return (async () => {
+  try {
+    const bucketName = "media";
+    const originalPath = "docs/old-name.md";
+    const newPath = "docs/new-name.md";
 
-if (listError) {
-  throw new Error(`Failed to list files: ${listError.message}`);
-}
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .move(originalPath, newPath);
 
-const fileExists = data.some((file) => file.name === "welcome.md");
-console.log(`File exists: ${fileExists}`);
+    if (error) throw error;
+
+    // REQUIRED: Generate and return the new public URL
+    const publicURL = `https://wpefpfebiyopiagmwrgm.supabase.co/storage/v1/object/public/${bucketName}/${newPath}`;
+    
+    return {
+      success: true,
+      message: "File moved/renamed successfully",
+      data: {
+        originalPath: originalPath,
+        newPath: newPath,
+        bucket: bucketName,
+        publicURL: publicURL
+      }
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: "Error moving/renaming file",
+      error: err.message || String(err),
+    };
+  }
+})();
 ```
 
 ## Complete Example
@@ -282,7 +361,7 @@ return (async () => {
     const filePath = "docs/readme.md";
     const content = `# Media Repository\n\nThis repository contains media files.\n\nLast updated: ${new Date().toISOString()}`;
 
-    const { error: uploadError } = await supabase.storage
+    const { data, error: uploadError } = await supabase.storage
       .from(bucketName)
       .upload(filePath, content, {
         contentType: "text/markdown",
@@ -300,8 +379,17 @@ return (async () => {
       } markdown file at ${filePath}`
     );
 
-    // All operations completed successfully
-    return "completed";
+    // Return the public URL to the uploaded file
+    const publicURL = `https://wpefpfebiyopiagmwrgm.supabase.co/storage/v1/object/public/${bucketName}/${filePath}`;
+    return {
+      success: true,
+      message: "File uploaded successfully",
+      data: {
+        path: filePath,
+        bucket: bucketName,
+        publicURL,
+      },
+    };
   } catch (err) {
     console.error("Unexpected error:", err.message || String(err));
     return "failed";
