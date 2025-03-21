@@ -16,6 +16,20 @@ Failure to provide these required values will result in database errors such as:
 null value in column "total_thoughts" of relation "sqt_thoughts" violates not-null constraint
 ```
 
+## CRITICAL: Session Creation Before Adding Thoughts
+
+You MUST create a session BEFORE attempting to add any thoughts. The database enforces a foreign key constraint between thoughts and sessions:
+
+1. ALWAYS call `sqt_create_session()` first with your chat_id
+2. ONLY AFTER the session is created, call `sqt_add_thought()`
+3. NEVER attempt to add thoughts with a chat_id that doesn't exist in the sqt_sessions table
+
+Failure to follow this sequence will result in the following error:
+```
+insert or update on table "sqt_thoughts" violates foreign key constraint "sqt_thoughts_chat_id_fkey"
+Key (chat_id)=(your_chat_id) is not present in table "sqt_sessions".
+```
+
 This document explains how to use the Sequential Thinking Database API to store and retrieve your thought processes. The API allows you to maintain persistent thinking sessions across interactions with PostgreSQL.
 
 ## Getting Started
@@ -43,7 +57,7 @@ To add a thought to your session:
 ```sql
 -- Add a thought
 SELECT * FROM sqt_add_thought(
-    'your_chat_id',       -- Your chat ID
+    'your_chat_id',       -- Your chat ID - MUST ALREADY EXIST in sqt_sessions table
     1,                    -- Current thought number (e.g., 1)
     5,                    -- Estimated total thoughts (e.g., 5) - REQUIRED, CANNOT BE NULL
     'This is my first thought about the problem...',  -- The actual thought content
@@ -55,6 +69,25 @@ SELECT * FROM sqt_add_thought(
     FALSE                 -- Boolean: realizing more thoughts are needed
 );
 ```
+
+### Recommended Workflow
+
+For best results, always follow this workflow:
+
+1. First, check if a session with your chat_id already exists:
+   ```sql
+   SELECT * FROM sqt_sessions WHERE chat_id = 'your_chat_id';
+   ```
+
+2. If no session exists, create one:
+   ```sql
+   SELECT * FROM sqt_create_session('your_chat_id', 'Session Title', 'Session Description');
+   ```
+
+3. Only then add thoughts to the session:
+   ```sql
+   SELECT * FROM sqt_add_thought('your_chat_id', ...);
+   ```
 
 ### Retrieving Session Thoughts
 
