@@ -1,6 +1,6 @@
 # Sequential Thinking Database API Instructions
 
-> **Schema Update**: This version uses the "sqt\_" prefix for all tables and functions to avoid naming conflicts and column ambiguity. It also supports enhanced features like thought states, pausing/resuming, and allows for longer session IDs (up to 100 characters).
+> **Schema Update**: This version uses the "sqt\_" prefix for all tables and functions to avoid naming conflicts. It also uses `chat_id` instead of `session_id` to prevent ambiguity between parameter and column names.
 
 This document explains how to use the Sequential Thinking Database API to store and retrieve your thought processes. The API allows you to maintain persistent thinking sessions across interactions with PostgreSQL.
 
@@ -8,15 +8,15 @@ This document explains how to use the Sequential Thinking Database API to store 
 
 ### Starting a New Session
 
-To begin a new thinking session, generate a unique session ID and create a session:
+To begin a new thinking session, generate a unique chat ID and create a session:
 
 ```sql
--- Generate a unique session ID in PostgreSQL (up to 100 characters)
-SELECT 'session_' || extract(epoch from now()) || '_' || md5(random()::text) AS session_id;
+-- Generate a unique chat ID in PostgreSQL (up to 100 characters)
+SELECT 'chat_' || extract(epoch from now()) || '_' || md5(random()::text) AS chat_id;
 
 -- Create the session in the database
 SELECT * FROM sqt_create_session(
-    'your_generated_session_id',  -- Can be up to 100 characters long
+    'your_generated_chat_id',  -- Can be up to 100 characters long
     'Problem Solving Session for [Problem Name]',
     'Thinking through the solution to [Problem Description]'
 );
@@ -29,16 +29,16 @@ To add a thought to your session:
 ```sql
 -- Add a thought
 SELECT * FROM sqt_add_thought(
-    'your_session_id',       -- Your session ID
-    1,                       -- Current thought number (e.g., 1)
-    5,                       -- Estimated total thoughts (e.g., 5)
+    'your_chat_id',       -- Your chat ID
+    1,                    -- Current thought number (e.g., 1)
+    5,                    -- Estimated total thoughts (e.g., 5)
     'This is my first thought about the problem...',  -- The actual thought content
-    TRUE,                    -- Boolean: is another thought needed?
-    FALSE,                   -- Boolean: is this revising an earlier thought?
-    NULL,                    -- If revising, which thought ID (null if not)
-    NULL,                    -- If branching, from which thought ID (null if not)
-    NULL,                    -- Branch identifier (null if main branch)
-    FALSE                    -- Boolean: realizing more thoughts are needed
+    TRUE,                 -- Boolean: is another thought needed?
+    FALSE,                -- Boolean: is this revising an earlier thought?
+    NULL,                 -- If revising, which thought ID (null if not)
+    NULL,                 -- If branching, from which thought ID (null if not)
+    NULL,                 -- Branch identifier (null if main branch)
+    FALSE                 -- Boolean: realizing more thoughts are needed
 );
 ```
 
@@ -48,7 +48,7 @@ To retrieve all thoughts in a session:
 
 ```sql
 -- Retrieve all thoughts for a session
-SELECT * FROM sqt_get_session_thoughts('your_session_id');
+SELECT * FROM sqt_get_session_thoughts('your_chat_id');
 ```
 
 ### Managing Branches
@@ -57,7 +57,7 @@ To get information about branches in a session:
 
 ```sql
 -- Retrieve branch information for a session
-SELECT * FROM sqt_get_session_branches('your_session_id');
+SELECT * FROM sqt_get_session_branches('your_chat_id');
 ```
 
 ### Completing a Session
@@ -66,7 +66,7 @@ When you've reached a satisfactory conclusion:
 
 ```sql
 -- Mark a session as complete
-SELECT * FROM sqt_complete_session('your_session_id');
+SELECT * FROM sqt_complete_session('your_chat_id');
 ```
 
 ## Managing Thought Execution States
@@ -77,7 +77,7 @@ Before generating the next thought, check if the session needs to continue think
 
 ```sql
 -- Check if the session needs more thoughts
-SELECT sqt_needs_continued_thinking('your_session_id');
+SELECT sqt_needs_continued_thinking('your_chat_id');
 ```
 
 This function will return `TRUE` if:
@@ -92,7 +92,7 @@ To retrieve the current active thought (or most recently paused thought) for a s
 
 ```sql
 -- Get the current active or most recently paused thought
-SELECT * FROM sqt_get_active_thought('your_session_id');
+SELECT * FROM sqt_get_active_thought('your_chat_id');
 ```
 
 This will return the active thought or the most recently paused thought, which helps determine where to resume the thinking process.
@@ -131,16 +131,16 @@ For a standard thought in the main sequence:
 ```sql
 -- Adding a standard sequential thought
 SELECT * FROM sqt_add_thought(
-    'your_session_id',      -- Your session ID
-    2,                      -- Thought number 2
-    5,                      -- Estimating 5 total thoughts
+    'your_chat_id',      -- Your chat ID
+    2,                   -- Thought number 2
+    5,                   -- Estimating 5 total thoughts
     'This is my second step in reasoning about the problem...',
-    TRUE,                   -- Another thought is needed
-    FALSE,                  -- Not a revision
-    NULL,                   -- Not revising any thought
-    NULL,                   -- Not branching
-    NULL,                   -- No branch ID
-    FALSE                   -- Not needing more thoughts than expected
+    TRUE,                -- Another thought is needed
+    FALSE,               -- Not a revision
+    NULL,                -- Not revising any thought
+    NULL,                -- Not branching
+    NULL,                -- No branch ID
+    FALSE                -- Not needing more thoughts than expected
 );
 ```
 
@@ -151,20 +151,20 @@ To revise a previous thought:
 ```sql
 -- First, find the thought ID you want to revise
 SELECT thought_id FROM sqt_thoughts
-WHERE session_id = 'your_session_id' AND thought_number = 1;
+WHERE chat_id = 'your_chat_id' AND thought_number = 1;
 
 -- Now add a revision thought
 SELECT * FROM sqt_add_thought(
-    'your_session_id',
-    3,                      -- Thought number 3
-    5,                      -- Still estimating 5 total thoughts
+    'your_chat_id',
+    3,                   -- Thought number 3
+    5,                   -- Still estimating 5 total thoughts
     'On second thought, my first point needs refinement because...',
-    TRUE,                   -- Another thought is needed
-    TRUE,                   -- This is a revision
-    1,                      -- Revising thought ID 1 (use the actual ID from the query above)
-    NULL,                   -- Not branching
-    NULL,                   -- No branch ID
-    FALSE                   -- Not needing more thoughts than expected
+    TRUE,                -- Another thought is needed
+    TRUE,                -- This is a revision
+    1,                   -- Revising thought ID 1 (use the actual ID from the query above)
+    NULL,                -- Not branching
+    NULL,                -- No branch ID
+    FALSE                -- Not needing more thoughts than expected
 );
 ```
 
@@ -175,14 +175,14 @@ To explore an alternative path:
 ```sql
 -- First, find the thought ID you want to branch from
 SELECT thought_id FROM sqt_thoughts
-WHERE session_id = 'your_session_id' AND thought_number = 2;
+WHERE chat_id = 'your_chat_id' AND thought_number = 2;
 
 -- Generate a unique branch ID (up to 100 characters)
 SELECT 'branch_' || extract(epoch from now()) || '_' || md5(random()::text) AS branch_id;
 
 -- Now add a branching thought
 SELECT * FROM sqt_add_thought(
-    'your_session_id',
+    'your_chat_id',
     4,                      -- Thought number 4
     6,                      -- Now estimating 6 total thoughts
     'Let''s explore an alternative approach...',
@@ -201,7 +201,7 @@ When you initially thought you were done but need to continue:
 
 ```sql
 SELECT * FROM sqt_add_thought(
-    'your_session_id',
+    'your_chat_id',
     5,                      -- Thought number 5 (what we thought was the last)
     7,                      -- Now estimating 7 total thoughts
     'I realize we need to consider one more aspect...',
@@ -221,7 +221,7 @@ When reaching a satisfactory conclusion:
 ```sql
 -- Add the final thought
 SELECT * FROM sqt_add_thought(
-    'your_session_id',
+    'your_chat_id',
     7,                      -- Final thought number
     7,                      -- Total thoughts
     'After considering all aspects, the solution is...',
@@ -234,7 +234,7 @@ SELECT * FROM sqt_add_thought(
 );
 
 -- Mark the session as complete
-SELECT * FROM sqt_complete_session('your_session_id');
+SELECT * FROM sqt_complete_session('your_chat_id');
 ```
 
 ## Execution Planning
@@ -250,8 +250,8 @@ After finalizing your thoughts, create an execution plan:
 ```sql
 -- Create a new execution plan
 SELECT sqt_create_execution_plan(
-    'your_session_id',                -- Session ID
-    42,                               -- The thought ID that generated this plan
+    'your_chat_id',                    -- Chat ID
+    42,                                -- The thought ID that generated this plan
     'Implementation Plan for Project X', -- Plan title
     'Step-by-step guide to implement the features discussed in the thinking process'  -- Plan description
 );
@@ -303,7 +303,7 @@ When a user connects to the session, check if there are plans ready for notifica
 
 ```sql
 -- Check for plans ready for user notification
-SELECT * FROM sqt_get_ready_plans_for_notification('your_session_id');
+SELECT * FROM sqt_get_ready_plans_for_notification('your_chat_id');
 ```
 
 If this returns results, notify the user that execution plans are ready, then mark them as notified:
@@ -355,7 +355,7 @@ PostgreSQL will raise exceptions for errors. You can handle them using exception
 ```sql
 -- Example of error handling in a PL/pgSQL function
 CREATE OR REPLACE FUNCTION sqt_safe_add_thought(
-    p_session_id VARCHAR(100),
+    p_chat_id VARCHAR(100),
     p_thought_number INT,
     p_total_thoughts INT,
     p_thought TEXT,
@@ -366,7 +366,7 @@ AS $function$
 BEGIN
     -- Try to add the thought with minimal parameters
     PERFORM sqt_add_thought(
-        p_session_id,
+        p_chat_id,
         p_thought_number,
         p_total_thoughts,
         p_thought,
@@ -383,7 +383,7 @@ $function$;
 
 -- Usage
 SELECT sqt_safe_add_thought(
-    'your_session_id',
+    'your_chat_id',
     1,
     5,
     'This is my first thought',
@@ -419,10 +419,10 @@ conn = psycopg2.connect(
 cur = conn.cursor()
 
 # Example: Create a session
-session_id = "session_123456"
+chat_id = "chat_123456"
 cur.execute(
     "SELECT * FROM sqt_create_session(%s, %s, %s)",
-    (session_id, "Test Session", "A test session description")
+    (chat_id, "Test Session", "A test session description")
 )
 result = cur.fetchone()
 print(f"Created session: {result}")
@@ -440,7 +440,7 @@ conn.close()
 ```sql
 -- Get the most recent thought in a session
 SELECT * FROM sqt_thoughts
-WHERE session_id = 'your_session_id'
+WHERE chat_id = 'your_chat_id'
 ORDER BY created_at DESC
 LIMIT 1;
 ```
@@ -478,9 +478,9 @@ ORDER BY thought_number;
 -- Get counts of thoughts per branch in a session
 SELECT branch_id, COUNT(*) AS thought_count
 FROM sqt_thoughts
-WHERE session_id = 'your_session_id' AND branch_id IS NOT NULL
+WHERE chat_id = 'your_chat_id' AND branch_id IS NOT NULL
 GROUP BY branch_id
 ORDER BY thought_count DESC;
 ```
 
-Remember to maintain session continuity by preserving and reusing the session ID across interactions that are part of the same reasoning process.
+Remember to maintain session continuity by preserving and reusing the chat ID across interactions that are part of the same reasoning process.

@@ -28,7 +28,7 @@ CREATE TYPE sqt_execution_plan_status AS ENUM ('draft', 'ready', 'in_progress', 
 
 -- Create a sessions table to track different thinking sessions
 CREATE TABLE IF NOT EXISTS sqt_sessions (
-    session_id VARCHAR(100) PRIMARY KEY,  -- Increased length to handle longer IDs
+    chat_id VARCHAR(100) PRIMARY KEY,  -- Changed from session_id to chat_id
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status sqt_session_status DEFAULT 'active',
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS sqt_sessions (
 -- Create a thoughts table to store individual thoughts
 CREATE TABLE IF NOT EXISTS sqt_thoughts (
     thought_id SERIAL PRIMARY KEY,
-    session_id VARCHAR(100) NOT NULL,  -- Match with sessions table
+    chat_id VARCHAR(100) NOT NULL,  -- Changed from session_id to chat_id
     thought_number INT NOT NULL,
     total_thoughts INT NOT NULL,
     thought TEXT NOT NULL,
@@ -47,33 +47,33 @@ CREATE TABLE IF NOT EXISTS sqt_thoughts (
     is_revision BOOLEAN DEFAULT FALSE,
     revises_thought_id INT NULL,
     branch_from_thought_id INT NULL,
-    branch_id VARCHAR(100) NULL,  -- Increased length
+    branch_id VARCHAR(100) NULL,
     needs_more_thoughts BOOLEAN DEFAULT FALSE,
     status sqt_thought_status DEFAULT 'active',
     user_paused BOOLEAN DEFAULT FALSE,
     execution_state JSONB DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES sqt_sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (chat_id) REFERENCES sqt_sessions(chat_id) ON DELETE CASCADE,
     FOREIGN KEY (revises_thought_id) REFERENCES sqt_thoughts(thought_id) ON DELETE SET NULL,
     FOREIGN KEY (branch_from_thought_id) REFERENCES sqt_thoughts(thought_id) ON DELETE SET NULL
 );
 
 -- Create a branches table to track thought branches
 CREATE TABLE IF NOT EXISTS sqt_branches (
-    branch_id VARCHAR(100) PRIMARY KEY,  -- Increased length
-    session_id VARCHAR(100) NOT NULL,   -- Match with sessions table
-    parent_branch_id VARCHAR(100) NULL,  -- Increased length
+    branch_id VARCHAR(100) PRIMARY KEY,
+    chat_id VARCHAR(100) NOT NULL,   -- Changed from session_id to chat_id
+    parent_branch_id VARCHAR(100) NULL,
     branch_name VARCHAR(255) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES sqt_sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (chat_id) REFERENCES sqt_sessions(chat_id) ON DELETE CASCADE,
     FOREIGN KEY (parent_branch_id) REFERENCES sqt_branches(branch_id) ON DELETE SET NULL
 );
 
 -- Create execution plans table
 CREATE TABLE IF NOT EXISTS sqt_execution_plans (
     plan_id SERIAL PRIMARY KEY,
-    session_id VARCHAR(100) NOT NULL,  -- Match with sessions table
+    chat_id VARCHAR(100) NOT NULL,  -- Changed from session_id to chat_id
     thought_id INT NOT NULL,
     title VARCHAR(255) NOT NULL,
     description TEXT NULL,
@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS sqt_execution_plans (
     user_notified BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES sqt_sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (chat_id) REFERENCES sqt_sessions(chat_id) ON DELETE CASCADE,
     FOREIGN KEY (thought_id) REFERENCES sqt_thoughts(thought_id) ON DELETE CASCADE
 );
 
@@ -105,9 +105,9 @@ CREATE TABLE IF NOT EXISTS sqt_execution_steps (
 );
 
 -- Create index for efficient queries
-CREATE INDEX idx_sqt_thoughts_session_id ON sqt_thoughts(session_id);
+CREATE INDEX idx_sqt_thoughts_chat_id ON sqt_thoughts(chat_id);
 CREATE INDEX idx_sqt_thoughts_branch_id ON sqt_thoughts(branch_id);
-CREATE INDEX idx_sqt_branches_session_id ON sqt_branches(session_id);
+CREATE INDEX idx_sqt_branches_chat_id ON sqt_branches(chat_id);
 
 -- Create a function to update updated_at timestamp automatically
 CREATE OR REPLACE FUNCTION sqt_update_timestamp_column()
@@ -139,27 +139,27 @@ FOR EACH ROW EXECUTE FUNCTION sqt_update_timestamp_column();
 
 -- Create a new session
 CREATE OR REPLACE FUNCTION sqt_create_session(
-    p_session_id VARCHAR(100),  -- Increased length
+    p_chat_id VARCHAR(100),
     p_title VARCHAR(255),
     p_description TEXT
 ) 
-RETURNS TABLE (session_id VARCHAR(100), created_at TIMESTAMP)  -- Increased length
+RETURNS TABLE (chat_id VARCHAR(100), created_at TIMESTAMP)
 LANGUAGE plpgsql
 AS $function$
 BEGIN
-    INSERT INTO sqt_sessions (session_id, title, description)
-    VALUES (p_session_id, p_title, p_description);
+    INSERT INTO sqt_sessions (chat_id, title, description)
+    VALUES (p_chat_id, p_title, p_description);
     
     RETURN QUERY
-    SELECT s.session_id, s.created_at 
+    SELECT s.chat_id, s.created_at 
     FROM sqt_sessions s 
-    WHERE s.session_id = p_session_id;
+    WHERE s.chat_id = p_chat_id;
 END;
 $function$;
 
 -- Add a thought to a session
 CREATE OR REPLACE FUNCTION sqt_add_thought(
-    p_session_id VARCHAR(100),  -- Increased length
+    p_chat_id VARCHAR(100),
     p_thought_number INT,
     p_total_thoughts INT,
     p_thought TEXT,
@@ -167,16 +167,16 @@ CREATE OR REPLACE FUNCTION sqt_add_thought(
     p_is_revision BOOLEAN,
     p_revises_thought_id INT,
     p_branch_from_thought_id INT,
-    p_branch_id VARCHAR(100),  -- Increased length
+    p_branch_id VARCHAR(100),
     p_needs_more_thoughts BOOLEAN
 ) 
 RETURNS TABLE (
     thought_id INT,
-    session_id VARCHAR(100),  -- Increased length
+    chat_id VARCHAR(100),
     thought_number INT,
     total_thoughts INT,
     next_thought_needed BOOLEAN,
-    branch_id VARCHAR(100)  -- Increased length
+    branch_id VARCHAR(100)
 )
 LANGUAGE plpgsql
 AS $function$
@@ -185,24 +185,24 @@ DECLARE
     v_new_thought_id INT;
 BEGIN
     -- Check if session exists
-    IF NOT EXISTS (SELECT 1 FROM sqt_sessions WHERE session_id = p_session_id) THEN
+    IF NOT EXISTS (SELECT 1 FROM sqt_sessions s WHERE s.chat_id = p_chat_id) THEN
         RAISE EXCEPTION 'Session does not exist';
     END IF;
     
     -- Check if branch exists if it's provided
     IF p_branch_id IS NOT NULL THEN
-        SELECT COUNT(*) INTO v_branch_exists FROM sqt_branches WHERE branch_id = p_branch_id;
+        SELECT COUNT(*) INTO v_branch_exists FROM sqt_branches b WHERE b.branch_id = p_branch_id;
         
         IF v_branch_exists = 0 THEN
             -- Create the branch if it doesn't exist
-            INSERT INTO sqt_branches (branch_id, session_id, parent_branch_id)
-            VALUES (p_branch_id, p_session_id, NULL);
+            INSERT INTO sqt_branches (branch_id, chat_id, parent_branch_id)
+            VALUES (p_branch_id, p_chat_id, NULL);
         END IF;
     END IF;
     
     -- Insert the thought
     INSERT INTO sqt_thoughts (
-        session_id, 
+        chat_id, 
         thought_number, 
         total_thoughts, 
         thought, 
@@ -214,7 +214,7 @@ BEGIN
         needs_more_thoughts
     )
     VALUES (
-        p_session_id, 
+        p_chat_id, 
         p_thought_number, 
         p_total_thoughts, 
         p_thought, 
@@ -228,13 +228,13 @@ BEGIN
     RETURNING thought_id INTO v_new_thought_id;
     
     -- Update the session's updated_at timestamp
-    UPDATE sqt_sessions SET updated_at = CURRENT_TIMESTAMP WHERE session_id = p_session_id;
+    UPDATE sqt_sessions s SET updated_at = CURRENT_TIMESTAMP WHERE s.chat_id = p_chat_id;
     
     -- Return the inserted thought
     RETURN QUERY
     SELECT 
         t.thought_id, 
-        t.session_id, 
+        t.chat_id, 
         t.thought_number, 
         t.total_thoughts,
         t.next_thought_needed,
@@ -246,7 +246,7 @@ $function$;
 
 -- Get all thoughts for a session
 CREATE OR REPLACE FUNCTION sqt_get_session_thoughts(
-    p_session_id VARCHAR(100)  -- Increased length
+    p_chat_id VARCHAR(100)
 ) 
 RETURNS TABLE (
     thought_id INT,
@@ -257,7 +257,7 @@ RETURNS TABLE (
     is_revision BOOLEAN,
     revises_thought_id INT,
     branch_from_thought_id INT,
-    branch_id VARCHAR(100),  -- Increased length
+    branch_id VARCHAR(100),
     needs_more_thoughts BOOLEAN,
     created_at TIMESTAMP
 )
@@ -278,18 +278,18 @@ BEGIN
         t.needs_more_thoughts,
         t.created_at
     FROM sqt_thoughts t
-    WHERE t.session_id = p_session_id
+    WHERE t.chat_id = p_chat_id
     ORDER BY t.created_at ASC;
 END;
 $function$;
 
 -- Get branch information for a session
 CREATE OR REPLACE FUNCTION sqt_get_session_branches(
-    p_session_id VARCHAR(100)  -- Increased length
+    p_chat_id VARCHAR(100)
 ) 
 RETURNS TABLE (
-    branch_id VARCHAR(100),  -- Increased length
-    parent_branch_id VARCHAR(100),  -- Increased length
+    branch_id VARCHAR(100),
+    parent_branch_id VARCHAR(100),
     branch_name VARCHAR(255),
     created_at TIMESTAMP,
     thought_count BIGINT
@@ -306,7 +306,7 @@ BEGIN
         COUNT(t.thought_id) AS thought_count
     FROM sqt_branches b
     LEFT JOIN sqt_thoughts t ON b.branch_id = t.branch_id
-    WHERE b.session_id = p_session_id
+    WHERE b.chat_id = p_chat_id
     GROUP BY b.branch_id, b.parent_branch_id, b.branch_name, b.created_at
     ORDER BY b.created_at ASC;
 END;
@@ -314,29 +314,29 @@ $function$;
 
 -- Complete a session
 CREATE OR REPLACE FUNCTION sqt_complete_session(
-    p_session_id VARCHAR(100)  -- Increased length
+    p_chat_id VARCHAR(100)
 ) 
 RETURNS TABLE (
-    session_id VARCHAR(100),  -- Increased length
+    chat_id VARCHAR(100),
     status sqt_session_status,
     updated_at TIMESTAMP
 )
 LANGUAGE plpgsql
 AS $function$
 BEGIN
-    UPDATE sqt_sessions 
+    UPDATE sqt_sessions s
     SET status = 'completed', updated_at = CURRENT_TIMESTAMP 
-    WHERE session_id = p_session_id;
+    WHERE s.chat_id = p_chat_id;
     
     -- Also mark all thoughts as completed
-    UPDATE sqt_thoughts
+    UPDATE sqt_thoughts t
     SET status = 'completed'
-    WHERE session_id = p_session_id AND status = 'active';
+    WHERE t.chat_id = p_chat_id AND t.status = 'active';
     
     RETURN QUERY
-    SELECT s.session_id, s.status, s.updated_at 
+    SELECT s.chat_id, s.status, s.updated_at 
     FROM sqt_sessions s
-    WHERE s.session_id = p_session_id;
+    WHERE s.chat_id = p_chat_id;
 END;
 $function$;
 
@@ -354,11 +354,11 @@ RETURNS TABLE (
 LANGUAGE plpgsql
 AS $function$
 BEGIN
-    UPDATE sqt_thoughts 
+    UPDATE sqt_thoughts t
     SET status = 'paused', 
         user_paused = TRUE,
         execution_state = p_execution_state
-    WHERE thought_id = p_thought_id;
+    WHERE t.thought_id = p_thought_id;
     
     RETURN QUERY
     SELECT t.thought_id, t.status, t.user_paused, t.updated_at
@@ -381,10 +381,10 @@ RETURNS TABLE (
 LANGUAGE plpgsql
 AS $function$
 BEGIN
-    UPDATE sqt_thoughts 
+    UPDATE sqt_thoughts t
     SET status = 'active', 
         user_paused = FALSE
-    WHERE thought_id = p_thought_id;
+    WHERE t.thought_id = p_thought_id;
     
     RETURN QUERY
     SELECT t.thought_id, t.status, t.user_paused, t.updated_at, t.execution_state
@@ -395,7 +395,7 @@ $function$;
 
 -- Get the active thought (or most recent thought) for a session
 CREATE OR REPLACE FUNCTION sqt_get_active_thought(
-    p_session_id VARCHAR(100)  -- Increased length
+    p_chat_id VARCHAR(100)
 ) 
 RETURNS TABLE (
     thought_id INT,
@@ -425,7 +425,7 @@ BEGIN
         t.created_at,
         t.updated_at
     FROM sqt_thoughts t
-    WHERE t.session_id = p_session_id
+    WHERE t.chat_id = p_chat_id
     AND (t.status = 'active' OR t.status = 'paused')
     ORDER BY 
         CASE WHEN t.status = 'active' THEN 0 ELSE 1 END,  -- Active thoughts first
@@ -436,7 +436,7 @@ $function$;
 
 -- Check if session needs to continue thinking
 CREATE OR REPLACE FUNCTION sqt_needs_continued_thinking(
-    p_session_id VARCHAR(100)  -- Increased length
+    p_chat_id VARCHAR(100)
 ) 
 RETURNS BOOLEAN
 LANGUAGE plpgsql
@@ -448,7 +448,7 @@ BEGIN
         EXISTS (
             SELECT 1 
             FROM sqt_thoughts t
-            WHERE t.session_id = p_session_id
+            WHERE t.chat_id = p_chat_id
             AND t.next_thought_needed = TRUE
             AND t.status IN ('active', 'paused')
             AND (t.user_paused = FALSE OR t.user_paused IS NULL)
@@ -461,7 +461,7 @@ $function$;
 
 -- Create a function to generate an execution plan
 CREATE OR REPLACE FUNCTION sqt_create_execution_plan(
-    p_session_id VARCHAR(100),  -- Increased length
+    p_chat_id VARCHAR(100),
     p_thought_id INT,
     p_title VARCHAR(255),
     p_description TEXT
@@ -474,14 +474,14 @@ DECLARE
 BEGIN
     -- Insert the execution plan
     INSERT INTO sqt_execution_plans (
-        session_id,
+        chat_id,
         thought_id,
         title,
         description,
         status
     )
     VALUES (
-        p_session_id,
+        p_chat_id,
         p_thought_id,
         p_title,
         p_description,
@@ -546,7 +546,7 @@ CREATE OR REPLACE FUNCTION sqt_finalize_execution_plan(
 ) 
 RETURNS TABLE (
     plan_id INT,
-    session_id VARCHAR(100),  -- Increased length
+    chat_id VARCHAR(100),
     thought_id INT,
     title VARCHAR(255),
     status sqt_execution_plan_status,
@@ -556,16 +556,16 @@ LANGUAGE plpgsql
 AS $function$
 BEGIN
     -- Update the plan status
-    UPDATE sqt_execution_plans
+    UPDATE sqt_execution_plans ep
     SET status = 'ready',
         user_notified = FALSE
-    WHERE plan_id = p_plan_id;
+    WHERE ep.plan_id = p_plan_id;
     
     -- Return the updated plan
     RETURN QUERY
     SELECT 
         ep.plan_id,
-        ep.session_id,
+        ep.chat_id,
         ep.thought_id,
         ep.title,
         ep.status,
@@ -577,7 +577,7 @@ $function$;
 
 -- Get plans that need user notification
 CREATE OR REPLACE FUNCTION sqt_get_ready_plans_for_notification(
-    p_session_id VARCHAR(100)  -- Increased length
+    p_chat_id VARCHAR(100)
 ) 
 RETURNS TABLE (
     plan_id INT,
@@ -597,7 +597,7 @@ BEGIN
         ep.description,
         ep.created_at
     FROM sqt_execution_plans ep
-    WHERE ep.session_id = p_session_id
+    WHERE ep.chat_id = p_chat_id
     AND ep.status = 'ready'
     AND ep.user_notified = FALSE
     ORDER BY ep.created_at DESC;
@@ -612,9 +612,9 @@ RETURNS VOID
 LANGUAGE plpgsql
 AS $function$
 BEGIN
-    UPDATE sqt_execution_plans
+    UPDATE sqt_execution_plans ep
     SET user_notified = TRUE
-    WHERE plan_id = p_plan_id;
+    WHERE ep.plan_id = p_plan_id;
 END;
 $function$;
 
@@ -624,7 +624,7 @@ CREATE OR REPLACE FUNCTION sqt_get_execution_plan_with_steps(
 ) 
 RETURNS TABLE (
     plan_id INT,
-    session_id VARCHAR(100),  -- Increased length
+    chat_id VARCHAR(100),
     thought_id INT,
     plan_title VARCHAR(255),
     plan_description TEXT,
@@ -646,7 +646,7 @@ BEGIN
     RETURN QUERY
     SELECT 
         ep.plan_id,
-        ep.session_id,
+        ep.chat_id,
         ep.thought_id,
         ep.title AS plan_title,
         ep.description AS plan_description,
@@ -677,11 +677,11 @@ RETURNS VOID
 LANGUAGE plpgsql
 AS $function$
 BEGIN
-    UPDATE sqt_execution_steps
+    UPDATE sqt_execution_steps es
     SET 
         is_completed = p_is_completed,
         status = CASE WHEN p_is_completed THEN 'completed' ELSE 'in_progress' END
-    WHERE step_id = p_step_id;
+    WHERE es.step_id = p_step_id;
     
     -- Check if all steps are completed
     IF p_is_completed THEN

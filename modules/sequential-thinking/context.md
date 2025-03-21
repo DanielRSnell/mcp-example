@@ -43,6 +43,7 @@ Each thought in the sequential thinking process includes:
 - **status**: Current state of the thought (active, completed, paused, abandoned)
 - **userPaused**: Boolean indicating if the user requested a pause
 - **executionState**: JSON data storing progress within a thought for resumption
+- **chatId**: Identifier for the session this thought belongs to
 
 ## Types of Thoughts
 
@@ -99,7 +100,7 @@ Once the thinking process is complete, you can create detailed execution plans w
 
 ## Persistence and Continuity
 
-Your thoughts and execution plans are stored in a database with session IDs (up to 100 characters), allowing you to:
+Your thoughts and execution plans are stored in a database with chat IDs (up to 100 characters), allowing you to:
 
 - Resume thinking where you left off
 - Reference and revise previous thoughts
@@ -113,6 +114,8 @@ Your thoughts and execution plans are stored in a database with session IDs (up 
 
 ## Implementation Note
 
-In the database, all tables and functions are prefixed with "sqt\_" (Sequential Quantum Thinking) to avoid naming conflicts. For example, thoughts are stored in the `sqt_thoughts` table and sessions in the `sqt_sessions` table. When using the database functions, remember to include this prefix (e.g., `sqt_add_thought()`, `sqt_get_active_thought()`).
+In the database, all tables and functions are prefixed with "sqt\_" (Sequential Quantum Thinking) to avoid naming conflicts. For example, thoughts are stored in the `sqt_thoughts` table and sessions in the `sqt_sessions` table. The database uses `chat_id` as the primary identifier for sessions (rather than `session_id`) to prevent column name ambiguity with function parameters.
+
+When using the database functions, remember to include the "sqt\_" prefix (e.g., `sqt_add_thought()`, `sqt_get_active_thought()`) and use `chat_id` to identify sessions.
 
 The database schema uses snake_case for field names (e.g., `thought_number`, `next_thought_needed`), while this document uses camelCase (e.g., `thoughtNumber`, `nextThoughtNeeded`) for conceptual clarity.
